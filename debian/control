@@ -73,8 +73,8 @@ Description: Network Time Protocol documentation
 Package: sntp
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Breaks: ntp (<<1:4.2.8p10+dfsg-3+exp3)
-Replaces: ntp (<<1:4.2.8p10+dfsg-3+exp3)
+Breaks: ntp (<<1:4.2.8p15)
+Replaces: ntp (<<1:4.2.8p15)
 Description: Network Time Protocol - sntp client
  NTP, the Network Time Protocol, is used to keep computer clocks
  accurate by synchronizing them over the Internet or a local network,
