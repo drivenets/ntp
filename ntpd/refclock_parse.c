@@ -2366,7 +2366,7 @@ local_input(
 			}
 			if (count)
 			{	/* simulate receive */
-				buf = get_free_recv_buffer();
+				buf = get_free_recv_buffer(TRUE);
 				if (buf != NULL) {
 					memmove((caddr_t)buf->recv_buffer,
 						(caddr_t)&parse->parseio.parse_dtime,
@@ -3069,6 +3069,7 @@ parse_start(
 
 	parse->generic->fudgetime2 = 0.0;
 	parse->ppsphaseadjust = parse->generic->fudgetime2;
+	parse->generic->fudgeminjitter = 0.0;
 
 	parse->generic->clockdesc  = parse->parse_type->cl_description;
 
@@ -3424,6 +3425,8 @@ parse_ctl(
 #endif
 		    }
 		}
+
+		parse->generic->fudgeminjitter = in->fudgeminjitter;
 	}
 }
 
@@ -3614,7 +3617,9 @@ parse_control(
 		}
 		else
 		{
-			int count = tmpctl.parseformat.parse_count - 1;
+			int count = tmpctl.parseformat.parse_count;
+			if (count)
+				--count;
 
 			start = tt = add_var(&out->kv_list, 80, RO|DEF);
 			tt = ap(start, 80, tt, "refclock_format=\"");
@@ -3780,9 +3785,14 @@ parse_process(
 			}
 			else
 			{
+				unsigned int count = tmpctl.parsegettc.parse_count;
+				if (count)
+					--count;
 				ERR(ERR_BADDATA)
-					msyslog(LOG_WARNING, "PARSE receiver #%d: FAILED TIMECODE: \"%s\" (check receiver configuration / wiring)",
-						CLK_UNIT(parse->peer), mkascii(buffer, sizeof buffer, tmpctl.parsegettc.parse_buffer, (unsigned)(tmpctl.parsegettc.parse_count - 1)));
+				    msyslog(LOG_WARNING, "PARSE receiver #%d: FAILED TIMECODE: \"%s\" (check receiver configuration / wiring)",
+					    CLK_UNIT(parse->peer),
+					    mkascii(buffer, sizeof(buffer),
+						    tmpctl.parsegettc.parse_buffer, count));
 			}
 			/* copy status to show only changes in case of failures */
 			parse->timedata.parse_status = parsetime->parse_status;
@@ -4249,8 +4259,7 @@ mk_utcinfo(
 		struct tm *tm;
 		int nc;
 
-		if (wnlsf < GPSWRAP)
-			wnlsf += GPSWEEKS;
+		wnlsf = basedate_expand_gpsweek(wnlsf);
 		/* 'wnt' not used here: would need the same treatment as 'wnlsf */
 
 		t_ls = (time_t) wnlsf * SECSPERWEEK

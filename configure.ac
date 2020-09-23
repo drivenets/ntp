@@ -1,7 +1,7 @@
 dnl NTP top-level configure.ac				-*- Autoconf -*-
 dnl
 m4_include([sntp/m4/version.m4])
-AC_PREREQ([2.61])
+AC_PREREQ([2.68])
 AC_INIT(
     [ntp],
     [VERSION_NUMBER],
@@ -42,13 +42,10 @@ ntp_configure_cache_version=20120806
 
 NTP_CACHEVERSION([main], [$ntp_configure_cache_version])
 
-AM_INIT_AUTOMAKE([1.10 foreign -Wall -Wno-gnu])
+AM_INIT_AUTOMAKE([1.15 foreign -Wall -Wno-gnu])
 
-dnl AM_SILENT_RULES req. automake 1.11.  [yes] defaults V=0
-m4_ifdef(
-    [AM_SILENT_RULES],
-    [AM_SILENT_RULES([yes])]
-)
+AM_SILENT_RULES([yes])
+
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 dnl the 'build' machine is where we run configure and compile
@@ -382,6 +379,7 @@ case "$host" in
 esac
 AC_CHECK_HEADERS([sys/stat.h sys/stream.h stropts.h sys/stropts.h sys/syssgi.h])
 AC_CHECK_HEADERS([sys/systune.h sys/termios.h sys/tpro.h sys/wait.h])
+AC_CHECK_FUNCS([waitpid])
 case "$host" in
 *-convex-*)
     AC_CHECK_HEADERS([/sys/sync/queue.h /sys/sync/sema.h])
@@ -527,6 +525,8 @@ AC_CHECK_HEADERS([sys/timex.h], [], [], [
     # include <sys/time.h>
     #endif
 ])
+
+NTP_AF_UNSPEC
 
 AC_TYPE_SIGNAL
 AC_TYPE_OFF_T
@@ -912,7 +912,7 @@ case "$host" in
     ;;
 esac
 AC_CHECK_FUNCS([setlinebuf setpgid setpriority setsid setvbuf])
-AC_CHECK_FUNCS([strdup strerror setrlimit strchr])
+AC_CHECK_FUNCS([strdup strnlen memchr strerror setrlimit strchr])
 case "$host" in
  *-*-aix[[4-9]]*)
     # XXX only verified thru AIX6.
@@ -1747,6 +1747,7 @@ case "$ntp_ok" in
  yes)
     ntp_refclock=yes
     AC_DEFINE([CLOCK_BANC], [1], [Datum/Bancomm bc635/VME interface?])
+    AC_SEARCH_LIBS([bcStartPci], [bcsdk], , , [])
     ;;
 esac
 AC_MSG_RESULT([$ntp_ok])
@@ -3012,6 +3013,17 @@ AC_MSG_RESULT([$ans])
 
 NTP_OPENSSL
 
+AC_MSG_CHECKING([if we want to enable CMAC support])
+case "$ac_cv_header_openssl_cmac_h" in
+ yes)
+    AC_DEFINE([ENABLE_CMAC], [1], [Enable CMAC support?])
+    ans="yes"
+    ;;
+ *) ans="no"
+    ;;
+esac
+AC_MSG_RESULT([$ans])
+
 NTP_CRYPTO_RAND
 
 # if we are using OpenSSL (--with-crypto), by default Autokey is enabled
@@ -4181,6 +4193,24 @@ case "$ans" in
 esac
 
 
+AC_MSG_CHECKING([if we want correct mode7 fudgetime2 behavior])
+AC_ARG_ENABLE(
+    [bug3527-fix],
+    [AS_HELP_STRING(
+	[--enable-bug3527-fix],
+	[+ provide correct mode7 fudgetime2 behavior]
+    )],
+    [ans=$enableval],
+    [ans=yes]
+)
+AC_MSG_RESULT([$ans])
+case "$ans" in
+ no)
+    AC_DEFINE([DISABLE_BUG3527_FIX], [1],
+	[use old autokey session key behavior?])
+esac
+
+
 AC_MSG_CHECKING([if we should use the IRIG sawtooth filter])
 
 case "$host" in
@@ -4375,6 +4405,10 @@ dnl  can't be conditionalized.
 NTP_GOOGLETEST
 
 NTP_PROBLEM_TESTS
+
+###
+
+AC_CHECK_DECLS([sigsetjmp,siglongjmp], [], [], [[#include <setjmp.h>]])
 
 ###
 

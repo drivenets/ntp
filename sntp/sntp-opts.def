@@ -113,7 +113,7 @@ flag = {
   value		= K;
   arg-type	= file;
   arg-name	= "file-name";
-  arg-default	= "/var/db/ntp-kod";
+  arg-default	= "/var/lib/sntp/kod";
   descrip	= "KoD history filename";
   doc		= <<- _EndOfDoc_
 	Specifies the filename to be used for the persistent history of KoD
@@ -128,6 +128,7 @@ flag = {
   descrip	= "Look in this file for the key specified with @option{-a}";
   arg-type	= file;
   arg-name	= "file-name";
+  arg-default	= "/etc/ntp.keys";
   doc		= <<- _EndOfDoc_
 	This option specifies the keyfile.
 	@code{sntp} will search for the key specified with @option{-a}

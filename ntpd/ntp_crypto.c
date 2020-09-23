@@ -268,7 +268,13 @@ session_key(
 		break;
 	}
 	ctx = EVP_MD_CTX_new();
+#   if defined(OPENSSL) && defined(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW)
+	/* [Bug 3457] set flags and don't kill them again */
+	EVP_MD_CTX_set_flags(ctx, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
+	EVP_DigestInit_ex(ctx, EVP_get_digestbynid(crypto_nid), NULL);
+#   else
 	EVP_DigestInit(ctx, EVP_get_digestbynid(crypto_nid));
+#   endif
 	EVP_DigestUpdate(ctx, (u_char *)header, hdlen);
 	EVP_DigestFinal(ctx, dgst, &len);
 	EVP_MD_CTX_free(ctx);
@@ -347,8 +353,8 @@ make_keylist(
 	 * included in the hash is zero if broadcast mode, the peer
 	 * cookie if client mode or the host cookie if symmetric modes.
 	 */
-	mpoll = 1 << min(peer->ppoll, peer->hpoll);
-	lifetime = min(1U << sys_automax, NTP_MAXSESSION * mpoll);
+	mpoll = 1U << min(peer->ppoll, peer->hpoll);
+	lifetime = min((1UL << sys_automax), NTP_MAXSESSION * mpoll);
 	if (peer->hmode == MODE_BROADCAST)
 		cookie = 0;
 	else
@@ -1480,7 +1486,8 @@ crypto_verify(
 		return (XEVNT_LEN);
 
 	i = (vallen + 3) / 4;
-	siglen = ntohl(ep->pkt[i++]);
+	siglen = ntohl(ep->pkt[i]);
+	++i;
 	if (   siglen > MAX_VALLEN
 	    || len - VALUE_LEN < ((vallen + 3) / 4) * 4
 	    || len - VALUE_LEN - ((vallen + 3) / 4) * 4
@@ -2087,7 +2094,13 @@ bighash(
 	ptr = emalloc(len);
 	BN_bn2bin(bn, ptr);
 	ctx = EVP_MD_CTX_new();
+#   if defined(OPENSSL) && defined(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW)
+	/* [Bug 3457] set flags and don't kill them again */
+	EVP_MD_CTX_set_flags(ctx, EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
+	EVP_DigestInit_ex(ctx, EVP_md5(), NULL);
+#   else
 	EVP_DigestInit(ctx, EVP_md5());
+#   endif
 	EVP_DigestUpdate(ctx, ptr, len);
 	EVP_DigestFinal(ctx, dgst, &len);
 	EVP_MD_CTX_free(ctx);

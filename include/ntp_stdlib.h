@@ -40,6 +40,9 @@ extern	void	setup_logfile	(const char *);
 extern	void	errno_to_str(int, char *, size_t);
 #endif
 
+extern	int	xvsbprintf(char**, char* const, char const*, va_list) NTP_PRINTF(3, 0);
+extern	int	xsbprintf(char**, char* const, char const*, ...) NTP_PRINTF(3, 4);
+
 /*
  * When building without OpenSSL, use a few macros of theirs to
  * minimize source differences in NTP.
@@ -97,8 +100,8 @@ extern	void	auth_prealloc_symkeys(int);
 extern	int	ymd2yd		(int, int, int);
 
 /* a_md5encrypt.c */
-extern	int	MD5authdecrypt	(int, const u_char *, u_int32 *, size_t, size_t);
-extern	size_t	MD5authencrypt	(int, const u_char *, u_int32 *, size_t);
+extern	int	MD5authdecrypt	(int, const u_char *, size_t, u_int32 *, size_t, size_t);
+extern	size_t	MD5authencrypt	(int, const u_char *, size_t, u_int32 *, size_t);
 extern	void	MD5auth_setkey	(keyid_t, int, const u_char *, size_t, KeyAccT *c);
 extern	u_int32	addr2refid	(sockaddr_u *);
 
@@ -156,7 +159,7 @@ extern	const char * modetoa	(size_t);
 extern	const char * eventstr	(int);
 extern	const char * ceventstr	(int);
 extern	const char * res_match_flags(u_short);
-extern	const char * res_access_flags(u_short);
+extern	const char * res_access_flags(u_int32);
 #ifdef KERNEL_PLL
 extern	const char * k_st_flags	(u_int32);
 #endif
