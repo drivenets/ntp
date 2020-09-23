@@ -194,4 +194,3 @@ extern struct ctl_trap ctl_traps[CTL_MAXTRAPS];
 
 #endif /* NTP_CONTROL_H */
 
-
