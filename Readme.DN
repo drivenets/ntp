@@ -1,0 +1,17 @@
+These sources are based on upstream of ntp-4.2.8.p15
+downloaded from http://www.eecis.udel.edu/~ntp/ntp_spool/ntp4/ntp-4.2/ntp-4.2.8p15.tar.gz
+20200922
+and include fixes and packaging info from Ubuntu ntp-4.2.8p10+dfsg sources (debian folder)
+
+
+Steps to build the package in Ubuntu (18.04.3 LTS, 4.15.0-66-generic #75-Ubuntu SMP)
+(executed in repo/branch folder as root)
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+apt-get build-dep ntp
+apt install texinfo lynx
+ln -s /usr/bin/perl /usr/local/bin/perl
+./bootstrap
+dpkg-buildpackage -rfakeroot -b --no-sign
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Resulting packages should appear in the parent folder (../)
