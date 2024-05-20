@@ -223,7 +223,6 @@ int droproot;
 int root_dropped;
 char *user;		/* User to switch to */
 char *group;		/* group to switch to */
-int have_caps = 0;      /* runtime check whether capabilities work, leave at 0 here */
 const char *chrootdir;	/* directory to chroot to */
 uid_t sw_uid;
 gid_t sw_gid;

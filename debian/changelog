@@ -1,37 +1,220 @@
-ntp (1:4.2.8p15dn+dfsg-0ubuntu7.2) bionic; urgency=medium
+ntp (1:4.2.8p15+dfsg-1ubuntu2) jammy; urgency=medium
 
-  * DN update for Ubuntu
-    - 4.2.8p15 is brought from upstream
+  * No-change rebuild to update maintainer scripts, see LP: 1959054
 
- -- Alex Krasnov <akrasnov@drivenets.com>  Thu, 24 Sep 2020 11:11:11 +0000
+ -- Dave Jones <dave.jones@canonical.com>  Wed, 16 Feb 2022 17:13:02 +0000
 
-ntp (1:4.2.8p10+dfsg-5ubuntu7.2) bionic; urgency=medium
+ntp (1:4.2.8p15+dfsg-1ubuntu1) jammy; urgency=medium
 
-  * ntpq should check return code from libcrypto calls (LP: #1884265)
-    - debian/patches/ntpq-openssl-check.patch
+  * Merge from Debian unstable, remaining changes:
+    - d/ntp.conf, d/ntpdate.default: Change default server to ntp.ubuntu.com.
+    - add support for parsing systemd networkd lease files LP: 1717983
+      + d/ntp.dhcp add support for parsing systemd networkd lease files
+      + d/ntp-systemd-netif.service: service to call hook
+      + d/ntp-systemd-netif.path: respond to lease changes
+  * Dropped changes, included in Debian:
+    - Add Conflict/Replaces/Provides: time-daemon.
+    - debian/rules: add -fcommon flag to CFLAGS
+  * Dropped changes, included upstream:
+    - debian/patches/CVE-2019-8936.patch: Guard against operations
+      on NULL pointer in ntpd/ntp_control.c.
+  * debian/patches/glibc-2.34.patch: compatibility with glibc 2.34.
 
- -- Joy Latten <joy.latten@canonical.com>  Thu, 09 Jul 2020 21:11:52 +0000
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Wed, 08 Dec 2021 11:49:03 -0800
 
-ntp (1:4.2.8p10+dfsg-5ubuntu7.1) bionic-security; urgency=medium
+ntp (1:4.2.8p15+dfsg-1) unstable; urgency=medium
 
-  * SECURITY UPDATE: DoS via mode 6 packet
-    - debian/patches/CVE-2018-7182.patch: do not compare past NUL byte in
-      ntpd/ntp_control.c.
-    - CVE-2018-7182
-  * SECURITY UPDATE: code execution via buffer overflow in decodearr
-    - debian/patches/CVE-2018-7183.patch: prevent writing beyons limits in
-      ntpq/ntpq.c.
-    - CVE-2018-7183
-  * SECURITY UPDATE: DoS via packet with zero-origin timestamp
-    - debian/patches/CVE-2018-7184.patch: recover from bad state in
-      ntpd/ntp_proto.c.
-    - CVE-2018-7184
-  * SECURITY UPDATE: DoS via certain packets with a zero-origin timestamp
-    - debian/patches/CVE-2018-7185.patch: add additional checks to
-      ntpd/ntp_proto.c.
-    - CVE-2018-7185
+  * Reapply DFSG-cleanup.
 
- -- Marc Deslauriers <marc.deslauriers@ubuntu.com>  Fri, 06 Jul 2018 15:08:42 -0400
+ -- Bernhard Schmidt <berni@debian.org>  Wed, 23 Sep 2020 13:46:38 +0200
+
+ntp (1:4.2.8p15-1) unstable; urgency=medium
+
+  * New upstream version 4.2.8p15
+  * Build with -fcommon to fix FTBFS with GCC-10 (Closes: #957615)
+
+ -- Bernhard Schmidt <berni@debian.org>  Mon, 21 Sep 2020 23:07:42 +0200
+
+ntp (1:4.2.8p14+dfsg-2) unstable; urgency=medium
+
+  * Make test-suite non-fatal on ia64 ppc64 ppc64el where it still fails
+    - Also on m68k where we don't know yet due to Bug#931630
+  * Drop obsolete Breaks+Replaces from pre-oldstable
+  * Add Conflict/Replaces/Provides: time-daemon (Closes: #316549)
+
+ -- Bernhard Schmidt <berni@debian.org>  Tue, 10 Mar 2020 08:38:28 +0100
+
+ntp (1:4.2.8p14+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 4.2.8p14+dfsg
+  * Drop patches applied upstream
+  * Enable testsuite on all architectures, should be fixed
+
+ -- Bernhard Schmidt <berni@debian.org>  Fri, 06 Mar 2020 19:38:49 +0100
+
+ntp (1:4.2.8p13+dfsg-2) unstable; urgency=medium
+
+  * Upload new upstream version to unstable
+  * AppArmor: fix path to Samba NTP signing socket (Closes: #928168)
+
+ -- Bernhard Schmidt <berni@debian.org>  Mon, 08 Jul 2019 00:22:04 +0200
+
+ntp (1:4.2.8p13+dfsg-1) experimental; urgency=medium
+
+   * New upstream version 4.2.8p13+dfsg
+     - CVE-2019-8936: Crafted null dereference attack in authenticated
+       mode 6 packet (Closes: #924228)
+   * ntp: exit 0 from init script if daemon does not exist (Closes: #764546)
+   * Drop locking from ntp initscript/systemd-wrapper
+   * Only delete ntpd statistics files in cronjob (Closes: #772790)
+
+ -- Bernhard Schmidt <berni@debian.org>  Thu, 21 Mar 2019 23:31:10 +0100
+
+ntp (1:4.2.8p12+dfsg-3ubuntu7) jammy; urgency=medium
+
+  * No-change rebuild against openssl3
+
+ -- Simon Chopin <simon.chopin@canonical.com>  Mon, 29 Nov 2021 16:04:04 +0100
+
+ntp (1:4.2.8p12+dfsg-3ubuntu6) impish; urgency=medium
+
+  * SECURITY UPDATE: Null dereference attack in mode 6 packet (LP: #1891953)
+    - debian/patches/CVE-2019-8936.patch: Guard against operations
+      on NULL pointer in ntpd/ntp_control.c.
+    - CVE-2019-8936
+  * Fix FTBFS with GCC-10
+    - debian/rules: add -fcommon flag to CFLAGS
+
+ -- Brian Morton <rokclimb15@gmail.com>  Fri, 27 Nov 2020 16:10:51 -0500
+
+ntp (1:4.2.8p12+dfsg-3ubuntu4) focal; urgency=medium
+
+  [ Bernhard Schmidt ]
+  * Add Conflict/Replaces/Provides: time-daemon (Closes: #316549)
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Thu, 02 Apr 2020 19:37:06 +0200
+
+ntp (1:4.2.8p12+dfsg-3ubuntu3) focal; urgency=medium
+
+  * No-change rebuild for libevent soname changes.
+
+ -- Matthias Klose <doko@ubuntu.com>  Sat, 19 Oct 2019 19:57:18 +0000
+
+ntp (1:4.2.8p12+dfsg-3ubuntu2) eoan; urgency=medium
+
+  * No-change upload with strops.h and sys/strops.h removed in glibc.
+
+ -- Matthias Klose <doko@ubuntu.com>  Thu, 05 Sep 2019 11:04:26 +0000
+
+ntp (1:4.2.8p12+dfsg-3ubuntu1) disco; urgency=medium
+
+  * Merge with Debian unstable (LP: #1806382). Remaining changes:
+    - d/ntp.conf, d/ntpdate.default: Change default server to ntp.ubuntu.com.
+    - add support for parsing systemd networkd lease files LP: 1717983
+      + d/ntp.dhcp add support for parsing systemd networkd lease files
+      + d/ntp-systemd-netif.service: service to call hook
+      + d/ntp-systemd-netif.path: respond to lease changes
+  * Dropped Changes (accepted in Debian)
+    - Add PPS support (this is accepted in Debian and only had some readme
+      and example entries left):
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Mon, 03 Dec 2018 13:05:00 +0100
+
+ntp (1:4.2.8p12+dfsg-3) unstable; urgency=low
+
+  * Treat testsuite errors as non-fatal on some architectures
+    Fixes FTBFS on ppc64el, ia64, powerpc, ppc64
+
+ -- Bernhard Schmidt <berni@debian.org>  Fri, 14 Sep 2018 22:31:42 +0200
+
+ntp (1:4.2.8p12+dfsg-2) unstable; urgency=low
+
+  * Drop ntpdate ifupdown hooks (Closes: #908286)
+    These have been a constant source of problems and one-shot syncs
+    are not a proper solution for timekeeping. See ntpdate.NEWS for
+    details
+  * Do not install /var/lib/ntpdate, not used anymore
+  * Drop maintscript snippets for upgrading from versions prior to Jessie
+  * Reenable unittest
+    - disable always failing test-decodenetnum with a patch
+  * Set Rules-Requires-Root: no
+
+ -- Bernhard Schmidt <berni@debian.org>  Thu, 13 Sep 2018 23:16:11 +0200
+
+ntp (1:4.2.8p12+dfsg-1) unstable; urgency=medium
+
+  [ Bernhard Schmidt ]
+  * New upstream version 4.2.8p12
+  * Update Maintainer address to ntp@packages.debian.org (Closes: #899940)
+  * Update ntpdate.8 from ntpdate.html (Closes: #476491, #515246)
+
+  [ Peter Eisentraut ]
+  * Remove Peter Eisentraut from Uploaders
+
+ -- Bernhard Schmidt <berni@debian.org>  Thu, 16 Aug 2018 22:20:29 +0200
+
+ntp (1:4.2.8p11+dfsg-1ubuntu1) cosmic; urgency=medium
+
+  * Merge with Debian unstable (LP: #1773921). Remaining changes:
+    - d/ntp.conf, d/ntpdate.default: Change default server to ntp.ubuntu.com.
+    - Add PPS support (LP 1512980):
+      + debian/README.Debian: Add a PPS section to the README.Debian
+      + debian/ntp.conf: Add some PPS configuration examples from the offical
+        documentation.
+    - d/ntp.dhcp add support for parsing systemd networkd lease files LP 1717983
+  * Dropped Changes (accepted in Debian)
+    - d/ntp-systemd-wrapper protect systemd service startup from concurrent
+      ntpdate processes the same way it was protected on sysv-init (LP 1706818)
+    - debian/apparmor-profile: add attach_disconnected which is needed in some
+      cases to let ntp report its log messages (LP 1727202).
+    - debian/apparmor-profile: avoid denies to to arg checks (LP 1741227)
+    - fix apparmor denial when checking for running ntpdate (LP 1749389)
+
+ -- Christian Ehrhardt <christian.ehrhardt@canonical.com>  Tue, 29 May 2018 10:34:11 +0200
+
+ntp (1:4.2.8p11+dfsg-1) unstable; urgency=medium
+
+  * New upstream version 4.2.8p11+dfsg (Closes: #851096)
+    - Refresh patches
+    - Drop ntpd-increase-stack-size included upstream
+    - CVE-2018-7185: Unauthenticated packet can reset authenticated
+      interleaved association (LOW/MED)
+    - CVE-2018-7184: Interleaved symmetric mode cannot recover from bad state
+      (LOW/MED)
+    - CVE-2018-7170 / CVE-2016-1549: Provide a way to prevent authenticated
+      symmetric passive peering (LOW)
+    - CVE-2018-7183: decodearr() can write beyond its 'buf' limits (Medium)
+    - CVE-2018-7182: ctl_getitem(): buffer read overrun leads to undefined
+      behavior and information leak (Info/Medium)
+    - CVE-2016-1549: Sybil vulnerability: ephemeral association attack
+      (mitigated in 4.2.8p7)
+  * convert dfsg.sh into mk-origtargz script
+  * Run wrap-and-sort
+  * Sync AppArmor profile changes from Ubuntu, including a fix for a
+    harmless AppArmor denial in /usr/local (Closes: #883022)
+  * Don't chown in postinst recursively.
+    Thanks to Daniel Kahn Gillmor (Closes: #889488)
+  * Build sntp against system libevent
+  * Drop versioned build-deps already fulfilled by oldoldstable
+
+ -- Bernhard Schmidt <berni@debian.org>  Sun, 25 Mar 2018 23:52:51 +0200
+
+ntp (1:4.2.8p10+dfsg-6) unstable; urgency=medium
+
+  * Make sntp KoD path FHS-compliant.
+    Thanks to Aaron Smith (Closes: #863873)
+  * Drop historic Breaks/Pre-Depends
+  * Drop historic conffile handling from pre-jessie
+  * Adjust ntpdate description stating that it is deprecated
+  * Move Vcs-* to salsa
+  * Bump Standards-Version to 4.1.3.0, no changes necessary
+  * Cherry-pick patch from upstream to increase stack size.
+    Thanks to Frederic Endner-Dühr for testing (Closes: #887385)
+  * Temporarily add ntpdate lock for systemd wrapper.
+    Thanks to Christian Ehrhardt (Closes: #874540)
+  * Add note about AppArmor tunable in README.Debian (Closes: #883949)
+
+ -- Bernhard Schmidt <berni@debian.org>  Wed, 24 Jan 2018 22:42:13 +0100
 
 ntp (1:4.2.8p10+dfsg-5ubuntu7) bionic; urgency=medium
 
@@ -2224,6 +2407,28 @@ ntp (1:4.2.0a-11ubuntu3) hoary; urgency=low
 
  -- Martin Pitt <martin.pitt@ubuntu.com>  Mon, 14 Mar 2005 13:24:46 +0100
 
+ntp (1:4.2.0a+stable-4) unstable; urgency=low
+
+  * Merged Upstream fix for ntpdate IPv4/IPv6 problems.
+    - Closes: #293793, #294636
+  * Install if-up.d/ntp-server in the correct directory.
+    - Closes: #294971
+  * Merged ubuntu's no-root patch.
+    - Closes: #298059, #296595, #282941
+  * Don't change the date when debugging ntpdate.
+    - Closes: #286463
+  * Tell the user that "/etc/initd/ntp-server reload" is not possible.
+    - Sort-of-Closes: #276216
+  * Cleanup init.d script. Closes: #295574
+  * Fix doc typos. Closes: #298226
+  * Remove /var/run/ntpd.pid when stopping the server.
+    - Closes: #295553
+  * Document ntpdate's exit status. Closes: #298190.
+  * Enhance ntpdate's logcheck rule. Closes: #283386
+  * Built against libreadline5.
+
+ -- Matthias Urlichs <smurf@debian.org>  Sat, 12 Mar 2005 06:16:39 +0100
+
 ntp (1:4.2.0a-11ubuntu2) hoary; urgency=low
 
   * Run ntpd as normal user (with CAP_SYS_TIME) instead of root
@@ -2246,6 +2451,64 @@ ntp (1:4.2.0a-11ubuntu2) hoary; urgency=low
     - remove user and group ntp on package purge
 
  -- Martin Pitt <martin.pitt@canonical.com>  Thu, 25 Nov 2004 15:23:53 +0100
+
+ntp (1:4.2.0a+stable-3) unstable; urgency=low
+
+  * Re-upload due to Debian FTP archive problems.
+
+ -- Matthias Urlichs <smurf@debian.org>  Tue, 25 Jan 2005 22:18:34 +0100
+
+ntp (1:4.2.0a+stable-2) unstable; urgency=low
+
+  * -dbg packages have been disabled.
+
+ -- Matthias Urlichs <smurf@debian.org>  Sun,  9 Jan 2005 15:56:42 +0100
+
+ntp (1:4.2.0a+stable-1) unstable; urgency=medium
+
+  * Workaround for ntpdate failing on IPv6 addresses with some kernels.
+    - Thanks to Dan Merillat <dmerillat@sequiam.com> for tracking this down.
+    - Closes: #249216.
+  * Changed the upstream version name. "+bkYYYYMMDD" isn't what the version of
+    a released program like ntpd should look like; people have been asking.
+
+ -- Matthias Urlichs <smurf@debian.org>  Sat,  8 Jan 2005 12:05:56 +0100
+
+ntp (1:4.2.0a+bk20040620-4) unstable; urgency=medium
+
+  * Pushing to Unstable.
+  * Note: This release is based on the _stable_ Upstream version.
+  * Turned off OpenSSL library compatibility test, it's nonsense.
+    - Closes:#286913.
+
+ -- Matthias Urlichs <smurf@debian.org>  Thu, 23 Dec 2004 01:47:30 +0100
+
+ntp (1:4.2.0a+bk20040620-3) experimental; urgency=low
+
+  * Depend on perl-modules (for ntptrace). Closes:#276672.
+  * Reworded clock interval explanation. Closes:#276213.
+  * Note that the actual NTP server is in package "ntp-server". Closes:#273865.
+  * Document dropped startup script run order. Closes:#240516.
+  * Fix --help in ntptrace. Closes:#242629.
+  * Add a (disabled) restart script to if-up.d. Closes:#247656.
+  * fixed SIGFPE in ntp-keygen.
+  * Remove superfluous {pre,post}{inst,rm} scripts
+
+ -- Matthias Urlichs <smurf@debian.org>  Sun, 14 Nov 2004 17:09:17 +0100
+
+ntp (1:4.2.0a+bk20040620-2) experimental; urgency=low
+
+  * Merge stable Upstream changes.
+  * Add debugging symbol packages.
+
+ -- Matthias Urlichs <smurf@debian.org>  Sat, 25 Sep 2004 11:43:37 +0200
+
+ntp (1:4.2.0a-12) unstable; urgency=low
+
+  * Doc how to use multiple servers in ntp.default.
+    - Closes: #264569: please document format of NTPSERVERS option
+
+ -- Matthias Urlichs <smurf@debian.org>  Mon,  9 Aug 2004 19:57:58 +0200
 
 ntp (1:4.2.0a-11ubuntu1) hoary; urgency=low
 
@@ -3262,4 +3525,3 @@ xntp-3.4r-0:
 Local variables:
 mode: debian-changelog
 End:
-

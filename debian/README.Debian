@@ -111,23 +111,6 @@ of these keys has not yet been tested; please report success or
 failure in using them to the maintainer.
 
 
-PPS
----
-
-This build of ntp has been pps enabled. You can use a pps reference clock,
-the default discipline is ntpd pps. On Xenial you have core_pps kernel driver
-compiled as a module per default. To achieve better accuracy, you may need to
-rebuild your kernel with CONFIG_NTP_PPS, which need CONFIG_NO_HZ=n to be
-set, you may also add CONFIG_RCU_FAST_NO_HZ.
-Be aware that if your server makes use of dhcp for its network configuration,
-you might need to check that your /etc/dhcp/dhclient.conf doesn't include any
-ntp-servers request, else your server configuration will be overriden. 
-You can find more information there:
--https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=691672#41
--http://www.ntp.org/ntpfaq/NTP-s-config-adv.htm#S-CONFIG-ADV-PPS
--http://www.ntp.org/ntpfaq/NTP-s-algo-kernel.htm#Q-ALGO-KERNEL-HARDPPS
-
-
 Apparmor Profile
 ----------------
 
@@ -136,3 +119,13 @@ works with the default installation, and changes in your configuration may
 require changes to the installed apparmor profile. Please see
 https://wiki.ubuntu.com/DebuggingApparmor before filing a bug against this
 software.
+
+If your ntpd configuration needs access to a device (for example for a local
+DCF clock) you may need to add this device to
+
+	/etc/apparmor.d/tunables/ntpd
+
+Afterwards you need to reload the AppArmor profile for the changes to take
+effect by executing
+
+	# apparmor_parser -r /etc/apparmor.d/usr.sbin.ntpd
