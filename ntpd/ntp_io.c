@@ -3597,7 +3597,8 @@ read_network_packet(
 			freerecvbuf(rb);
 			return buflen;
 		}
-		DPRINTF(2, ("processing that packet\n"));
+		DPRINTF(2, ("processing that packet and removing scope\n"));
+		SCOPE_VAR(&rb->recv_srcadr) = 0;
 	}
 
 	/*
@@ -4358,6 +4359,11 @@ findbcastinter(
 
 			if (SOCK_EQ(netof(&iface->sin), netof(addr)))
 				break;
+
+			if (IN6_IS_ADDR_LINKLOCAL(PSOCK_ADDR6(addr))
+			    && IN6_IS_ADDR_LINKLOCAL(PSOCK_ADDR6(&iface->sin)))
+				break;
+
 		}
 #endif
 	}
