@@ -82,6 +82,7 @@ typedef enum {
 } nic_rule_action;
 
 
+int multicast_enabled;
 extern int	qos;
 SOCKET		move_fd(SOCKET fd);
 /*isc_boolean_t	get_broadcastclient_flag(void);*/

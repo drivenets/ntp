@@ -2659,6 +2659,7 @@ io_setbclient(void)
 			msyslog(LOG_INFO,
 				"Listen for broadcasts to %s on interface #%d %s",
 				stoa(&ep->bcast), ep->ifnum, ep->name);
+			multicast_enabled = 1;
 		} else switch (errno) {
 			/* Silently ignore EADDRINUSE as we probably
 			 * opened the socket already for an address in
@@ -3597,8 +3598,13 @@ read_network_packet(
 			freerecvbuf(rb);
 			return buflen;
 		}
-		DPRINTF(2, ("processing that packet and removing scope\n"));
-		SCOPE_VAR(&rb->recv_srcadr) = 0;
+        	if(multicast_enabled == 1) {
+            		DPRINTF(2, ("processing that packet and removing scope\n"));
+            		SCOPE_VAR(&rb->recv_srcadr) = 0;
+        	}
+        	else {
+            		DPRINTF(2, ("processing that packet\n"));
+        	}
 	}
 
 	/*
