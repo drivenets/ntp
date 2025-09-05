@@ -12,6 +12,12 @@
 #include "ntp_stdlib.h"
 #include <ntp_random.h>
 
+#ifdef HAVE_POLL_H
+# include <poll.h>
+#elif defined(HAVE_SYS_POLL_H)
+# include <sys/poll.h>
+#endif
+
 #include "ntp_config.h"
 #include "ntp_syslog.h"
 #include "ntp_assert.h"
@@ -207,7 +213,7 @@ int nofork;			/* Fork by default */
 #ifdef HAVE_DNSREGISTRATION
 /*
  * mDNS registration flag. If set, we attempt to register with the mDNS system, but only
- * after we have synched the first time. If the attempt fails, then try again once per 
+ * after we have synched the first time. If the attempt fails, then try again once per
  * minute for up to 5 times. After all, we may be starting before mDNS.
  */
 int mdnsreg = FALSE;
@@ -286,7 +292,7 @@ static void	assertion_failed	(const char *, int,
 					 isc_assertiontype_t,
 					 const char *)
 			__attribute__	((__noreturn__));
-static void	library_fatal_error	(const char *, int, 
+static void	library_fatal_error	(const char *, int,
 					 const char *, va_list)
 					ISC_FORMAT_PRINTF(3, 0);
 static void	library_unexpected_error(const char *, int,
@@ -342,7 +348,7 @@ my_pthread_warmup_worker(
 		sleep(10);
 	return NULL;
 }
-	
+
 /* pre-heat threading: create a thread and cancel it, just to exercise
  * thread cancellation.
  */
@@ -352,7 +358,7 @@ my_pthread_warmup(void)
 	pthread_t 	thread;
 	pthread_attr_t	thr_attr;
 	int       	rc;
-	
+
 	pthread_attr_init(&thr_attr);
 #if defined(HAVE_PTHREAD_ATTR_GETSTACKSIZE) && \
     defined(HAVE_PTHREAD_ATTR_SETSTACKSIZE) && \
@@ -407,7 +413,7 @@ parse_cmdline_opts(
 		optct = ntpOptionProcess(&ntpdOptions, *pargc, *pargv);
 
 	parsed = 1;
-	
+
 	*pargc -= optct;
 	*pargv += optct;
 }
@@ -447,7 +453,7 @@ main(
 		int aslr_var = PROC_STACKGAP_DISABLE;
 
 		pid_t my_pid = getpid();
-		procctl(P_PID, my_pid, PROC_STACKGAP_CTL, &aslr_var); 
+		procctl(P_PID, my_pid, PROC_STACKGAP_CTL, &aslr_var);
 	}
 #   endif
 	return ntpdmain(argc, argv);
@@ -850,7 +856,7 @@ ntpdmain(
 # ifdef NEED_PTHREAD_WARMUP
 	my_pthread_warmup();
 # endif
-	
+
 # ifdef HAVE_UMASK
 	uv = umask(0);
 	if (uv)
@@ -1045,7 +1051,7 @@ ntpdmain(
 	 * on the base CPU than the other CPUs (for multiprocessor systems),
 	 * so we must lock to the base CPU.
 	 */
-	fd = open("/dev/at1", O_RDONLY);		
+	fd = open("/dev/at1", O_RDONLY);
 	if (fd >= 0) {
 		zero = 0;
 		if (ioctl(fd, ACPU_LOCK, &zero) < 0)
@@ -1304,7 +1310,7 @@ ntpdmain(
 			 */
 			cap_t caps;
 			char *captext;
-			
+
 			captext = (0 != interface_interval)
 				      ? "cap_sys_time,cap_net_bind_service=pe"
 				      : "cap_sys_time=pe";
@@ -1438,7 +1444,7 @@ int scmp_sc[] = {
 
 	if (seccomp_load(ctx) < 0)
 		msyslog(LOG_ERR, "%s: seccomp_load() failed: %m",
-		    __func__);	
+		    __func__);
 	else {
 		msyslog(LOG_DEBUG, "%s: seccomp_load() succeeded", __func__);
 	}
@@ -1474,7 +1480,7 @@ int scmp_sc[] = {
 		/* collect async name/addr results */
 		if (!was_alarmed)
 		    harvest_blocking_responses();
-		
+
 		if (!was_alarmed && !has_full_recv_buffer()) {
 			/*
 			 * Nothing to do.  Wait for something.
@@ -1564,11 +1570,11 @@ int scmp_sc[] = {
 		if (mdnsreg && (current_time - mdnsreg ) > 60 && mdnstries && sys_leap != LEAP_NOTINSYNC) {
 			mdnsreg = current_time;
 			msyslog(LOG_INFO, "Attempting to register mDNS");
-			if ( DNSServiceRegister (&mdns, 0, 0, NULL, "_ntp._udp", NULL, NULL, 
+			if ( DNSServiceRegister (&mdns, 0, 0, NULL, "_ntp._udp", NULL, NULL,
 			    htons(NTP_PORT), 0, NULL, NULL, NULL) != kDNSServiceErr_NoError ) {
 				if (!--mdnstries) {
 					msyslog(LOG_ERR, "Unable to register mDNS, giving up.");
-				} else {	
+				} else {
 					msyslog(LOG_INFO, "Unable to register mDNS, will try later.");
 				}
 			} else {
@@ -1642,8 +1648,6 @@ wait_child_sync_if(
 	time_t	wait_end_time;
 	time_t	cur_time;
 	time_t	wait_rem;
-	fd_set	readset;
-	struct timeval wtimeout;
 
 	/* we wait a bit for the child in *any* case, because on failure
 	 * of the child we have to get and inspect the exit code!
@@ -1655,54 +1659,53 @@ wait_child_sync_if(
 		wait_end_time += 30;
 
 	do {
+		struct pollfd pfd;
 		cur_time = time(NULL);
 		wait_rem = (wait_end_time > cur_time)
 				? (wait_end_time - cur_time)
 				: 0;
-		wtimeout.tv_sec = wait_rem;
-		wtimeout.tv_usec = 0;
-		FD_ZERO(&readset);
-		FD_SET(pipe_read_fd, &readset);
-		rc = select(pipe_read_fd + 1, &readset, NULL, NULL,
-			    &wtimeout);
+		pfd.fd = pipe_read_fd;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		rc = poll(&pfd, 1, wait_rem * 1000);
 		if (-1 == rc) {
 			if (EINTR == errno)
 				continue;
 			msyslog(LOG_ERR,
-				"daemon startup: select failed: %m");
+				"daemon startup: poll failed: %m");
 			return EX_IOERR;
 		}
 		if (0 == rc) {
 			/*
-			 * select() indicated a timeout, but in case
+			 * poll() indicated a timeout, but in case
 			 * its timeouts are affected by a step of the
-			 * system clock, select() again with a zero 
+			 * system clock, poll() again with a zero
 			 * timeout to confirm.
 			 */
-			FD_ZERO(&readset);
-			FD_SET(pipe_read_fd, &readset);
-			wtimeout.tv_sec = 0;
-			wtimeout.tv_usec = 0;
-			rc = select(pipe_read_fd + 1, &readset, NULL,
-				    NULL, &wtimeout);
-			if (0 == rc)	/* select() timeout */
+			pfd.fd = pipe_read_fd;
+			pfd.events = POLLIN;
+			pfd.revents = 0;
+			rc = poll(&pfd, 1, 0);
+			if (0 == rc)	/* poll() timeout */
 				break;
 		}
-		rc = read(pipe_read_fd, &ch, 1);
-		if (rc == 0) {
-			DPRINTF(2, ("daemon control: got EOF\n"));
-			return -1;	/* unexpected EOF, check daemon */
-		} else if (rc == 1) {
-			DPRINTF(2, ("daemon control: got '%c'\n",
-				    (ch >= ' ' ? ch : '.')));
-			if (ch == 'R' && !wait_sync)
-				return 0;
-			if (ch == 'S' && wait_sync)
-				return 0;
-		} else {
-			DPRINTF(2, ("daemon control: read 1 char failed: %s\n",
-				    strerror(errno)));
-			return EX_IOERR;
+		if (pfd.revents & POLLIN) {
+			rc = read(pipe_read_fd, &ch, 1);
+			if (rc == 0) {
+				DPRINTF(2, ("daemon control: got EOF\n"));
+				return -1;	/* unexpected EOF, check daemon */
+			} else if (rc == 1) {
+				DPRINTF(2, ("daemon control: got '%c'\n",
+					    (ch >= ' ' ? ch : '.')));
+				if (ch == 'R' && !wait_sync)
+					return 0;
+				if (ch == 'S' && wait_sync)
+					return 0;
+			} else {
+				DPRINTF(2, ("daemon control: read 1 char failed: %s\n",
+					    strerror(errno)));
+				return EX_IOERR;
+			}
 		}
 	} while (wait_rem > 0);
 
