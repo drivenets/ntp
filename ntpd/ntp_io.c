@@ -3292,13 +3292,13 @@ pollfdbits(
 	const struct pollfd*	pollfds
 	)
 {
-	static char buffer[256];
+	static char buffer[4096];  /* Increased from 256 to 4096 to handle more FDs */
 	char * buf = buffer;
 	int i;
 
-	count = min(count, 255);
+	count = min(count, 4095);  /* Increased from 255 to 4095 */
 
-	for (i = 0; i < count && i < 255; i++) {
+	for (i = 0; i < count && i < 4095; i++) {
 		*buf++ = (pollfds[i].fd >= 0) ? '#' : '-';
 	}
 	*buf = '\0';
@@ -4755,8 +4755,11 @@ localaddrtoa(
 static void
 process_routing_msgs(struct asyncio_reader *reader)
 {
-	char buffer[5120];
+	char *buffer = NULL;
+	size_t buffer_size = 5120;  /* Start with original size */
 	int cnt, msg_type;
+	int retry_count = 0;
+	const int max_retries = 5;  /* Prevent infinite loops */
 #ifdef HAVE_RTNETLINK
 	struct nlmsghdr *nh;
 #else
@@ -4774,18 +4777,54 @@ process_routing_msgs(struct asyncio_reader *reader)
 		return;
 	}
 
-	cnt = read(reader->fd, buffer, sizeof(buffer));
+	/* Allocate initial buffer */
+	buffer = malloc(buffer_size);
+	if (!buffer) {
+		msyslog(LOG_ERR, "Failed to allocate routing message buffer");
+		return;
+	}
 
-	if (cnt < 0) {
+	/* Try to read with dynamic buffer resizing on ENOBUFS */
+	while (retry_count < max_retries) {
+		cnt = read(reader->fd, buffer, buffer_size);
+
+		if (cnt >= 0) {
+			/* Success - break out of retry loop */
+			break;
+		}
+
 		if (errno == ENOBUFS) {
-			msyslog(LOG_ERR,
-				"routing socket reports: %m");
+			/* Double the buffer size and retry */
+			char *new_buffer;
+			size_t new_size = buffer_size * 2;
+
+			new_buffer = realloc(buffer, new_size);
+			if (new_buffer) {
+				buffer = new_buffer;
+				buffer_size = new_size;
+				retry_count++;
+				msyslog(LOG_INFO, "Routing socket buffer too small, increasing to %zu bytes (retry %d)",
+					buffer_size, retry_count);
+				continue; /* Try again with larger buffer */
+			} else {
+				msyslog(LOG_ERR, "Failed to reallocate routing message buffer to %zu bytes", new_size);
+				break; /* Give up on reallocation failure */
+			}
 		} else {
-			msyslog(LOG_ERR,
-				"routing socket reports: %m - disabling");
+			/* Other error - not ENOBUFS */
+			msyslog(LOG_ERR, "routing socket reports: %m - disabling");
 			remove_asyncio_reader(reader);
 			delete_asyncio_reader(reader);
+			free(buffer);
+			return;
 		}
+	}
+
+	/* Check if we exhausted retries */
+	if (retry_count >= max_retries) {
+		msyslog(LOG_ERR, "routing socket reports: %m (buffer size %zu, retries %d)",
+			buffer_size, retry_count);
+		free(buffer);
 		return;
 	}
 
@@ -4811,6 +4850,7 @@ process_routing_msgs(struct asyncio_reader *reader)
 
 			remove_asyncio_reader(reader);
 			delete_asyncio_reader(reader);
+			free(buffer);
 			return;
 		}
 		msg_type = rtm.rtm_type;
@@ -4867,6 +4907,7 @@ process_routing_msgs(struct asyncio_reader *reader)
 #ifdef HAVE_RTNETLINK
 		case NLMSG_DONE:
 			/* end of multipart message */
+			free(buffer);
 			return;
 #endif
 		default:
@@ -4878,6 +4919,9 @@ process_routing_msgs(struct asyncio_reader *reader)
 			break;
 		}
 	}
+
+	/* Clean up the dynamically allocated buffer */
+	free(buffer);
 }
 
 /*
