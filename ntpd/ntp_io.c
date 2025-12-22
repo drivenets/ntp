@@ -27,6 +27,11 @@
 #ifdef HAVE_SYS_UIO_H
 # include <sys/uio.h>
 #endif
+#ifdef HAVE_POLL_H
+# include <poll.h>
+#elif defined(HAVE_SYS_POLL_H)
+# include <sys/poll.h>
+#endif
 
 #include "ntp_machine.h"
 #include "ntpd.h"
@@ -192,11 +197,12 @@ static	struct refclockio *refio;
 #endif /* REFCLOCK */
 
 /*
- * File descriptor masks etc. for call to select
+ * File descriptor management for poll() calls
  * Not needed for I/O Completion Ports or anything outside this file
  */
-static fd_set activefds;
-static int maxactivefd;
+static struct pollfd *pollfds;
+static int pollfd_count;
+static int pollfd_capacity;
 
 /*
  * bit alternating value to detect verified interfaces during an update cycle
@@ -283,7 +289,7 @@ static	void	set_reuseaddr	(int);
 static	isc_boolean_t	socket_broadcast_enable	 (struct interface *, SOCKET, sockaddr_u *);
 
 #if !defined(HAVE_IO_COMPLETION_PORT) && !defined(HAVE_SIGNALED_IO)
-static	char *	fdbits		(int, const fd_set *);
+static	char *	pollfdbits	(int, const struct pollfd *);
 #endif
 #ifdef  OS_MISSES_SPECIFIC_ROUTE_UPDATES
 static	isc_boolean_t	socket_broadcast_disable (struct interface *, sockaddr_u *);
@@ -339,8 +345,8 @@ static int		cmp_addr_distance(const sockaddr_u *,
 #if !defined(HAVE_IO_COMPLETION_PORT)
 static inline int	read_network_packet	(SOCKET, struct interface *, l_fp);
 static void		ntpd_addremove_io_fd	(int, int, int);
-static void 		input_handler_scan	(const l_fp*, const fd_set*);
-static int/*BOOL*/	sanitize_fdset		(int errc);
+static void 		input_handler_scan_poll	(const l_fp*, struct pollfd*, int);
+static int/*BOOL*/	sanitize_pollfds	(int errc);
 #ifdef REFCLOCK
 static inline int	read_refclock_packet	(SOCKET, struct refclockio *, l_fp);
 #endif
@@ -352,32 +358,57 @@ static void 		input_handler		(l_fp*);
 
 #ifndef HAVE_IO_COMPLETION_PORT
 void
-maintain_activefds(
+maintain_pollfds(
 	int fd,
 	int closing
 	)
 {
 	int i;
 
-	if (fd < 0 || fd >= FD_SETSIZE) {
-		msyslog(LOG_ERR,
-			"Too many sockets in use, FD_SETSIZE %d exceeded by fd %d",
-			FD_SETSIZE, fd);
-		exit(1);
+	if (fd < 0) {
+		msyslog(LOG_ERR, "Invalid file descriptor %d", fd);
+		return;
 	}
 
 	if (!closing) {
-		FD_SET(fd, &activefds);
-		maxactivefd = max(fd, maxactivefd);
+		/* Add fd to pollfds array */
+		if (pollfd_count >= pollfd_capacity) {
+			/* Grow the array */
+			int new_capacity = pollfd_capacity ? pollfd_capacity * 2 : 16;
+			struct pollfd *new_pollfds = realloc(pollfds, new_capacity * sizeof(struct pollfd));
+			if (!new_pollfds) {
+				msyslog(LOG_ERR, "Failed to allocate memory for pollfds");
+				exit(1);
+			}
+			pollfds = new_pollfds;
+			pollfd_capacity = new_capacity;
+		}
+
+		/* Check if fd already exists */
+		for (i = 0; i < pollfd_count; i++) {
+			if (pollfds[i].fd == fd) {
+				pollfds[i].events = POLLIN;
+				pollfds[i].revents = 0;
+				return;
+			}
+		}
+
+		/* Add new fd */
+		pollfds[pollfd_count].fd = fd;
+		pollfds[pollfd_count].events = POLLIN;
+		pollfds[pollfd_count].revents = 0;
+		pollfd_count++;
 	} else {
-		FD_CLR(fd, &activefds);
-		if (maxactivefd && fd == maxactivefd) {
-			for (i = maxactivefd - 1; i >= 0; i--)
-				if (FD_ISSET(i, &activefds)) {
-					maxactivefd = i;
-					break;
+		/* Remove fd from pollfds array */
+		for (i = 0; i < pollfd_count; i++) {
+			if (pollfds[i].fd == fd) {
+				/* Move last element to this position */
+				if (i < pollfd_count - 1) {
+					pollfds[i] = pollfds[pollfd_count - 1];
 				}
-			INSIST(fd != maxactivefd);
+				pollfd_count--;
+				break;
+			}
 		}
 	}
 }
@@ -482,7 +513,7 @@ ntpd_addremove_io_fd(
 		init_socket_sig(fd);
 #endif /* not HAVE_SIGNALED_IO */
 
-	maintain_activefds(fd, remove_it);
+	maintain_pollfds(fd, remove_it);
 }
 
 
@@ -508,7 +539,7 @@ io_open_sockets(void)
 
 	init_async_notifications();
 
-	DPRINTF(3, ("io_open_sockets: maxactivefd %d\n", maxactivefd));
+	DPRINTF(3, ("io_open_sockets: pollfd_count %d\n", pollfd_count));
 }
 
 
@@ -2057,10 +2088,11 @@ create_sockets(
 {
 #ifndef HAVE_IO_COMPLETION_PORT
 	/*
-	 * I/O Completion Ports don't care about the select and FD_SET
+	 * I/O Completion Ports don't care about the poll and pollfds
 	 */
-	maxactivefd = 0;
-	FD_ZERO(&activefds);
+	pollfd_count = 0;
+	pollfd_capacity = 0;
+	pollfds = NULL;
 #endif
 
 	DPRINTF(2, ("create_sockets(%d)\n", port));
@@ -2618,7 +2650,7 @@ io_setbclient(void)
 		case AF_INET6: ++ni6; break;
 		default      :        break;
 		}
-		
+
 		if (ep->flags & (INT_WILDCARD | INT_LOOPBACK))
 			continue;
 
@@ -3146,7 +3178,7 @@ sendpkt(
 	u_char	cttl;
 	l_fp	fp_zero = { { 0 }, 0 };
 	l_fp	org, rec, xmt;
-	
+
 	ismcast = IS_MCAST(dest);
 	if (!ismcast)
 		src = ep;
@@ -3250,24 +3282,24 @@ sendpkt(
 
 #if !defined(HAVE_IO_COMPLETION_PORT)
 #if !defined(HAVE_SIGNALED_IO)
+
 /*
- * fdbits - generate ascii representation of fd_set (FAU debug support)
- * HFDF format - highest fd first.
+ * pollfdbits - generate ascii representation of pollfds array (FAU debug support)
  */
 static char *
-fdbits(
+pollfdbits(
 	int		count,
-	const fd_set*	set
+	const struct pollfd*	pollfds
 	)
 {
-	static char buffer[256];
+	static char buffer[4096];  /* Increased from 256 to 4096 to handle more FDs */
 	char * buf = buffer;
+	int i;
 
-	count = min(count,  255);
+	count = min(count, 4095);  /* Increased from 255 to 4095 */
 
-	while (count >= 0) {
-		*buf++ = FD_ISSET(count, set) ? '#' : '-';
-		count--;
+	for (i = 0; i < count && i < 4095; i++) {
+		*buf++ = (pollfds[i].fd >= 0) ? '#' : '-';
 	}
 	*buf = '\0';
 
@@ -3503,7 +3535,7 @@ read_network_packet(
 		/* A partial read on a UDP socket truncates the data and
 		 * removes the message from the queue. So there's no
 		 * need to have a full buffer here on the stack.
-		 */ 
+		 */
 		char buf[16];
 		sockaddr_u from;
 
@@ -3628,55 +3660,39 @@ read_network_packet(
 }
 
 /*
- * attempt to handle io (select()/signaled IO)
+ * attempt to handle io (poll()/signaled IO)
  */
 void
 io_handler(void)
 {
 #  ifndef HAVE_SIGNALED_IO
-	fd_set rdfdes;
 	int nfound;
 
 	/*
-	 * Use select() on all on all input fd's for unlimited
-	 * time.  select() will terminate on SIGALARM or on the
-	 * reception of input.	Using select() means we can't do
+	 * Use poll() on all input fd's for unlimited
+	 * time.  poll() will terminate on SIGALARM or on the
+	 * reception of input.	Using poll() means we can't do
 	 * robust signal handling and we get a potential race
-	 * between checking for alarms and doing the select().
+	 * between checking for alarms and doing the poll().
 	 * Mostly harmless, I think.
 	 */
 	/*
-	 * On VMS, I suspect that select() can't be interrupted
+	 * On VMS, I suspect that poll() can't be interrupted
 	 * by a "signal" either, so I take the easy way out and
-	 * have select() time out after one second.
+	 * have poll() time out after one second.
 	 * System clock updates really aren't time-critical,
 	 * and - lacking a hardware reference clock - I have
 	 * yet to learn about anything else that is.
 	 */
 	++handler_calls;
-	rdfdes = activefds;
 #   if !defined(VMS) && !defined(SYS_VXWORKS)
-	nfound = select(maxactivefd + 1, &rdfdes, NULL,
-			NULL, NULL);
+	nfound = poll(pollfds, pollfd_count, -1);
 #   else	/* VMS, VxWorks */
-	/* make select() wake up after one second */
-	{
-		struct timeval t1;
-		t1.tv_sec  = 1;
-		t1.tv_usec = 0;
-		nfound = select(maxactivefd + 1,
-				&rdfdes, NULL, NULL,
-				&t1);
-	}
+	/* make poll() wake up after one second */
+	nfound = poll(pollfds, pollfd_count, 1000);
 #   endif	/* VMS, VxWorks */
-	if (nfound < 0 && sanitize_fdset(errno)) {
-		struct timeval t1;
-		t1.tv_sec  = 0;
-		t1.tv_usec = 0;
-		rdfdes = activefds;
-		nfound = select(maxactivefd + 1,
-				&rdfdes, NULL, NULL,
-				&t1);
+	if (nfound < 0 && sanitize_pollfds(errno)) {
+		nfound = poll(pollfds, pollfd_count, 0);
 	}
 
 	if (nfound > 0) {
@@ -3684,15 +3700,15 @@ io_handler(void)
 
 		get_systime(&ts);
 
-		input_handler_scan(&ts, &rdfdes);
+		input_handler_scan_poll(&ts, pollfds, pollfd_count);
 	} else if (nfound == -1 && errno != EINTR) {
-		msyslog(LOG_ERR, "select() error: %m");
+		msyslog(LOG_ERR, "poll() error: %m");
 	}
 #   ifdef DEBUG
 	else if (debug > 4) {
-		msyslog(LOG_DEBUG, "select(): nfound=%d, error: %m", nfound);
+		msyslog(LOG_DEBUG, "poll(): nfound=%d, error: %m", nfound);
 	} else {
-		DPRINTF(3, ("select() returned %d: %m\n", nfound));
+		DPRINTF(3, ("poll() returned %d: %m\n", nfound));
 	}
 #   endif /* DEBUG */
 #  else /* HAVE_SIGNALED_IO */
@@ -3712,37 +3728,31 @@ input_handler(
 	)
 {
 	int		n;
-	struct timeval	tvzero;
-	fd_set		fds;
-	
+
 	++handler_calls;
 
 	/*
 	 * Do a poll to see who has data
 	 */
 
-	fds = activefds;
-	tvzero.tv_sec = tvzero.tv_usec = 0;
-
-	n = select(maxactivefd + 1, &fds, NULL, NULL, &tvzero);
-	if (n < 0 && sanitize_fdset(errno)) {
-		fds = activefds;
-		tvzero.tv_sec = tvzero.tv_usec = 0;
-		n = select(maxactivefd + 1, &fds, NULL, NULL, &tvzero);
+	n = poll(pollfds, pollfd_count, 0);
+	if (n < 0 && sanitize_pollfds(errno)) {
+		n = poll(pollfds, pollfd_count, 0);
 	}
 	if (n > 0)
-		input_handler_scan(cts, &fds);
+		input_handler_scan_poll(cts, pollfds, pollfd_count);
 }
 #endif /* HAVE_SIGNALED_IO */
 
 
+
 /*
- * Try to sanitize the global FD set
+ * Try to sanitize the global pollfds array
  *
  * SIGNAL HANDLER CONTEXT if HAVE_SIGNALED_IO, ordinary userspace otherwise
  */
 static int/*BOOL*/
-sanitize_fdset(
+sanitize_pollfds(
 	int	errc
 	)
 {
@@ -3754,44 +3764,50 @@ sanitize_fdset(
 	 */
 	if (errc != EINTR) {
 		msyslog(LOG_ERR,
-			"select(%d, %s, 0L, 0L, &0.0) error: %m",
-			maxactivefd + 1,
-			fdbits(maxactivefd, &activefds));
+			"poll(%d fds, %s) error: %m",
+			pollfd_count,
+			pollfdbits(pollfd_count, pollfds));
 	}
 #   endif
-	
+
 	if (errc != EBADF)
 		return FALSE;
 
-	/* if we have oviously bad FDs, try to sanitize the FD set. */
-	for (j = 0, maxscan = 0; j <= maxactivefd; j++) {
-		if (FD_ISSET(j, &activefds)) {
-			if (-1 != read(j, &b, 0)) {
+	/* if we have obviously bad FDs, try to sanitize the pollfds array. */
+	for (j = 0, maxscan = 0; j < pollfd_count; j++) {
+		if (pollfds[j].fd >= 0) {
+			if (-1 != read(pollfds[j].fd, &b, 0)) {
 				maxscan = j;
 				continue;
 			}
 #		    ifndef HAVE_SIGNALED_IO
 			msyslog(LOG_ERR,
-				"Removing bad file descriptor %d from select set",
-				j);
+				"Removing bad file descriptor %d from pollfds array",
+				pollfds[j].fd);
 #		    endif
-			FD_CLR(j, &activefds);
+			/* Move last element to this position */
+			if (j < pollfd_count - 1) {
+				pollfds[j] = pollfds[pollfd_count - 1];
+				j--; /* Check this position again */
+			}
+			pollfd_count--;
 		}
 	}
-	if (maxactivefd != maxscan)
-		maxactivefd = maxscan;
 	return TRUE;
 }
 
+
 /*
- * scan the known FDs (clocks, servers, ...) for presence in a 'fd_set'. 
+ * input_handler_scan_poll - poll() version of input_handler_scan
+ * scan the known FDs (clocks, servers, ...) for presence in pollfds array.
  *
  * SIGNAL HANDLER CONTEXT if HAVE_SIGNALED_IO, ordinary userspace otherwise
  */
 static void
-input_handler_scan(
+input_handler_scan_poll(
 	const l_fp *	cts,
-	const fd_set *	pfds
+	struct pollfd *	pollfds,
+	int		pollfd_count
 	)
 {
 	int		buflen;
@@ -3799,10 +3815,11 @@ input_handler_scan(
 	int		doing;
 	SOCKET		fd;
 	blocking_child *c;
-	l_fp		ts;	/* Timestamp at BOselect() gob */
+	l_fp		ts;	/* Timestamp at BOpoll() gob */
+	int		i;
 
 #if defined(DEBUG_TIMING)
-	l_fp		ts_e;	/* Timestamp at EOselect() gob */
+	l_fp		ts_e;	/* Timestamp at EOpoll() gob */
 #endif
 	endpt *		ep;
 #ifdef REFCLOCK
@@ -3822,36 +3839,40 @@ input_handler_scan(
 	/*
 	 * Check out the reference clocks first, if any
 	 */
-	
+
 	for (rp = refio; rp != NULL; rp = rp->next) {
 		fd = rp->fd;
-		
-		if (!FD_ISSET(fd, pfds))
-			continue;
-		buflen = read_refclock_packet(fd, rp, ts);
-		/*
-		 * The first read must succeed after select() indicates
-		 * readability, or we've reached a permanent EOF.
-		 * http://bugs.ntp.org/1732 reported ntpd munching CPU
-		 * after a USB GPS was unplugged because select was
-		 * indicating EOF but ntpd didn't remove the descriptor
-		 * from the activefds set.
-		 */
-		if (buflen < 0 && EAGAIN != errno) {
-			saved_errno = errno;
-			clk = refnumtoa(&rp->srcclock->srcadr);
-			errno = saved_errno;
-			msyslog(LOG_ERR, "%s read: %m", clk);
-			maintain_activefds(fd, TRUE);
-		} else if (0 == buflen) {
-			clk = refnumtoa(&rp->srcclock->srcadr);
-			msyslog(LOG_ERR, "%s read EOF", clk);
-			maintain_activefds(fd, TRUE);
-		} else {
-			/* drain any remaining refclock input */
-			do {
+
+		/* Check if this fd is ready in pollfds */
+		for (i = 0; i < pollfd_count; i++) {
+			if (pollfds[i].fd == fd && (pollfds[i].revents & POLLIN)) {
 				buflen = read_refclock_packet(fd, rp, ts);
-			} while (buflen > 0);
+				/*
+				 * The first read must succeed after poll() indicates
+				 * readability, or we've reached a permanent EOF.
+				 * http://bugs.ntp.org/1732 reported ntpd munching CPU
+				 * after a USB GPS was unplugged because poll was
+				 * indicating EOF but ntpd didn't remove the descriptor
+				 * from the pollfds array.
+				 */
+				if (buflen < 0 && EAGAIN != errno) {
+					saved_errno = errno;
+					clk = refnumtoa(&rp->srcclock->srcadr);
+					errno = saved_errno;
+					msyslog(LOG_ERR, "%s read: %m", clk);
+					maintain_pollfds(fd, TRUE);
+				} else if (0 == buflen) {
+					clk = refnumtoa(&rp->srcclock->srcadr);
+					msyslog(LOG_ERR, "%s read EOF", clk);
+					maintain_pollfds(fd, TRUE);
+				} else {
+					/* drain any remaining refclock input */
+					do {
+						buflen = read_refclock_packet(fd, rp, ts);
+					} while (buflen > 0);
+				}
+				break;
+			}
 		}
 	}
 #endif /* REFCLOCK */
@@ -3870,11 +3891,16 @@ input_handler_scan(
 			}
 			if (fd < 0)
 				continue;
-			if (FD_ISSET(fd, pfds))
-				do {
-					buflen = read_network_packet(
-							fd, ep, ts);
-				} while (buflen > 0);
+			/* Check if this fd is ready in pollfds */
+			for (i = 0; i < pollfd_count; i++) {
+				if (pollfds[i].fd == fd && (pollfds[i].revents & POLLIN)) {
+					do {
+						buflen = read_network_packet(
+								fd, ep, ts);
+					} while (buflen > 0);
+					break;
+				}
+			}
 			/* Check more interfaces */
 		}
 	}
@@ -3888,8 +3914,13 @@ input_handler_scan(
 	while (asyncio_reader != NULL) {
 		/* callback may unlink and free asyncio_reader */
 		next_asyncio_reader = asyncio_reader->link;
-		if (FD_ISSET(asyncio_reader->fd, pfds))
-			(*asyncio_reader->receiver)(asyncio_reader);
+		/* Check if this fd is ready in pollfds */
+		for (i = 0; i < pollfd_count; i++) {
+			if (pollfds[i].fd == asyncio_reader->fd && (pollfds[i].revents & POLLIN)) {
+				(*asyncio_reader->receiver)(asyncio_reader);
+				break;
+			}
+		}
 		asyncio_reader = next_asyncio_reader;
 	}
 #endif /* HAS_ROUTING_SOCKET */
@@ -3901,9 +3932,13 @@ input_handler_scan(
 		c = blocking_children[idx];
 		if (NULL == c || -1 == c->resp_read_pipe)
 			continue;
-		if (FD_ISSET(c->resp_read_pipe, pfds)) {
-			++c->resp_ready_seen;
-			++blocking_child_ready_seen;
+		/* Check if this fd is ready in pollfds */
+		for (i = 0; i < pollfd_count; i++) {
+			if (pollfds[i].fd == c->resp_read_pipe && (pollfds[i].revents & POLLIN)) {
+				++c->resp_ready_seen;
+				++blocking_child_ready_seen;
+				break;
+			}
 		}
 	}
 
@@ -4509,11 +4544,11 @@ kill_asyncio(
 	BLOCKIO();
 
 	/*
-	 * In the child process we do not maintain activefds and
-	 * maxactivefd.  Zeroing maxactivefd disables code which
+	 * In the child process we do not maintain pollfds.
+	 * Zeroing pollfd_count disables code which
 	 * maintains it in close_and_delete_fd_from_list().
 	 */
-	maxactivefd = 0;
+	pollfd_count = 0;
 
 	while (fd_list != NULL)
 		close_and_delete_fd_from_list(fd_list->fd);
@@ -4538,7 +4573,7 @@ add_fd_to_list(
 	lsock->type = type;
 
 	LINK_SLIST(fd_list, lsock, link);
-	maintain_activefds(fd, 0);
+	maintain_pollfds(fd, 0);
 }
 
 
@@ -4574,9 +4609,9 @@ close_and_delete_fd_from_list(
 
 	free(lsock);
 	/*
-	 * remove from activefds
+	 * remove from pollfds
 	 */
-	maintain_activefds(fd, 1);
+	maintain_pollfds(fd, 1);
 }
 
 
@@ -4720,8 +4755,11 @@ localaddrtoa(
 static void
 process_routing_msgs(struct asyncio_reader *reader)
 {
-	char buffer[5120];
+	char *buffer = NULL;
+	size_t buffer_size = 5120;  /* Start with original size */
 	int cnt, msg_type;
+	int retry_count = 0;
+	const int max_retries = 5;  /* Prevent infinite loops */
 #ifdef HAVE_RTNETLINK
 	struct nlmsghdr *nh;
 #else
@@ -4739,18 +4777,54 @@ process_routing_msgs(struct asyncio_reader *reader)
 		return;
 	}
 
-	cnt = read(reader->fd, buffer, sizeof(buffer));
+	/* Allocate initial buffer */
+	buffer = malloc(buffer_size);
+	if (!buffer) {
+		msyslog(LOG_ERR, "Failed to allocate routing message buffer");
+		return;
+	}
 
-	if (cnt < 0) {
+	/* Try to read with dynamic buffer resizing on ENOBUFS */
+	while (retry_count < max_retries) {
+		cnt = read(reader->fd, buffer, buffer_size);
+
+		if (cnt >= 0) {
+			/* Success - break out of retry loop */
+			break;
+		}
+
 		if (errno == ENOBUFS) {
-			msyslog(LOG_ERR,
-				"routing socket reports: %m");
+			/* Double the buffer size and retry */
+			char *new_buffer;
+			size_t new_size = buffer_size * 2;
+
+			new_buffer = realloc(buffer, new_size);
+			if (new_buffer) {
+				buffer = new_buffer;
+				buffer_size = new_size;
+				retry_count++;
+				msyslog(LOG_INFO, "Routing socket buffer too small, increasing to %zu bytes (retry %d)",
+					buffer_size, retry_count);
+				continue; /* Try again with larger buffer */
+			} else {
+				msyslog(LOG_ERR, "Failed to reallocate routing message buffer to %zu bytes", new_size);
+				break; /* Give up on reallocation failure */
+			}
 		} else {
-			msyslog(LOG_ERR,
-				"routing socket reports: %m - disabling");
+			/* Other error - not ENOBUFS */
+			msyslog(LOG_ERR, "routing socket reports: %m - disabling");
 			remove_asyncio_reader(reader);
 			delete_asyncio_reader(reader);
+			free(buffer);
+			return;
 		}
+	}
+
+	/* Check if we exhausted retries */
+	if (retry_count >= max_retries) {
+		msyslog(LOG_ERR, "routing socket reports: %m (buffer size %zu, retries %d)",
+			buffer_size, retry_count);
+		free(buffer);
 		return;
 	}
 
@@ -4776,6 +4850,7 @@ process_routing_msgs(struct asyncio_reader *reader)
 
 			remove_asyncio_reader(reader);
 			delete_asyncio_reader(reader);
+			free(buffer);
 			return;
 		}
 		msg_type = rtm.rtm_type;
@@ -4832,6 +4907,7 @@ process_routing_msgs(struct asyncio_reader *reader)
 #ifdef HAVE_RTNETLINK
 		case NLMSG_DONE:
 			/* end of multipart message */
+			free(buffer);
 			return;
 #endif
 		default:
@@ -4843,6 +4919,9 @@ process_routing_msgs(struct asyncio_reader *reader)
 			break;
 		}
 	}
+
+	/* Clean up the dynamically allocated buffer */
+	free(buffer);
 }
 
 /*
